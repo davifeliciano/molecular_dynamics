@@ -20,6 +20,20 @@ def lenard_jones_force(rel_position: np.ndarray) -> np.ndarray:
 
 
 class Cell:
+    """
+    Cell of a Grid
+
+    Atribbutes:
+
+    row, col : ints
+        define the position of the cell on the grid
+
+    neighbors : list of Cells
+        a list with all the neighbors of the cell
+
+    particles : list of Particles
+        a list with all the particles contained by the cell
+    """
     def __init__(self, row, col):
 
         self.indexes = self.row, self.col = row, col
@@ -37,6 +51,30 @@ class Cell:
 
 
 class Grid:
+    """
+    Grid composing a box of particles
+
+    Attributes:
+
+    rows, cols : ints
+        number of rows and columns of cells composing the grid 
+
+    width, height : float
+        width and height of the box
+
+    init_temp : float
+        the initial temperature of the system
+
+    time : float
+        the current time elapsed since the system was created.
+        This value must only be changed by calling the update method
+
+    cells : np.ndarray
+        numpy array of cells that compose the grid
+
+    particles : list
+        list of particles in the system
+    """
     def __init__(self, size=(18, 18), cell_size=3, particles=400, init_temp=173.15):
 
         self.cell_size = cell_size
@@ -100,7 +138,7 @@ class Grid:
 
     def __repr__(self):
         return f"Grid(size={self.size}, cell_size={self.cell_size}, " \
-                "particles={self.particles}, init_temp={self.init_temp})"
+               f"particles={self.particles}, init_temp={self.init_temp})"
 
     def cell(self, x, y):
         """Returns a cell based on position on the plane"""
@@ -168,6 +206,30 @@ class Grid:
 
 
 class Particle:
+    """
+    Point Particle
+
+    Atributtes:
+
+    position : np.ndarray
+        position of the particle on the grid relative to its
+        top left corner
+
+    velocity : np.ndarray
+        velocity of the particle
+
+    force : np.ndarray
+        net force of the system in the particle
+
+    energy : float
+        potential energy of the particle
+
+    grid : Grid
+        grid in which the particle is inside
+
+    cell : Cell
+        cell in which the particle is inside
+    """
     def __init__(self, pos, vel, grid):
 
         self.position = pos
@@ -183,7 +245,7 @@ class Particle:
 
     def __repr__(self):
         return f"Particle(position={self.position}, velocity={self.velocity}, " \
-                "energy={self.energy}, force={self.force})"
+               f"energy={self.energy}, force={self.force})"
 
     def current_cell(self):
         """Return the cell in which the particle currently is"""
@@ -217,8 +279,7 @@ if __name__ == "__main__":
     print("\nAmount of particles in each Cell:")
     for i in range(grid.rows):
         for j in range(grid.cols):
-            print(
-                f"Cell {i}, {j}: {len(grid.cells[i][j].particles)} particles")
+            print(f"Cell {i}, {j}: {len(grid.cells[i][j].particles)} particles")
 
     print("\nNeighbors of each cell:")
     for i in range(grid.rows):
@@ -229,8 +290,10 @@ if __name__ == "__main__":
     t = 0
     while True:
         print(
-            f"\nTime = {grid.time}, Energy = {grid.energy()}, Temperature = {grid.temperature()}"
+            f"\nTime = {grid.time}, Energy = {grid.energy()},",
+            f"Temperature = {grid.temperature()}"
         )
+
         print(grid.particles[0])
         grid.update()
-        sleep(0.50)
+        sleep(0.5)
