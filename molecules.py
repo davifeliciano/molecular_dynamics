@@ -3,6 +3,8 @@ from numpy.random import default_rng
 from time import sleep
 
 rng = default_rng()
+float_formatter = "{:.3e}".format
+np.set_printoptions(formatter={'float_kind':float_formatter})
 
 BOLTZMANN = 1.38064852e-23
 
@@ -49,6 +51,18 @@ class Cell:
     def remove_particle(self, particle):
         self.particles.remove(particle)
 
+    def is_physical_neighbor(self, cell):
+        """
+        Returns True if the given cell is a physical neighbor of the cell instance
+        Returns False if the given cell is not a neighbor, or is periodic image neighbor
+        """
+        if cell not in self.neighbors:
+            return False
+        for index_self, index in zip(self.indexes, cell.indexes):
+            if abs(index_self - index) > 1:
+                return False
+        return True
+
 
 class Grid:
     """
@@ -74,6 +88,13 @@ class Grid:
 
     particles : list
         list of particles in the system
+
+    time : float
+        time elapsed relative to the initial state of the system
+
+    iteration : int
+        number of iterations done with update method since the initial
+        state of the system
     """
     def __init__(self, size=(18, 18), cell_size=3, particles=400, init_temp=173.15):
 
@@ -94,51 +115,48 @@ class Grid:
         self.init_temp = init_temp / BOLTZMANN
         self.time = 0
         self.dt = 0.01 / np.sqrt(self.init_temp)
+        self.iteration = 0
 
         self.cells = np.array(
-            [[Cell(i, j) for i in range(self.rows)] for j in range(self.cols)],
+            [[Cell(i, j) for j in range(self.cols)] for i in range(self.rows)],
             dtype=Cell,
         )
 
         # Appending neighbors to cell.neighbors for all cells in the grid
-        for i in range(self.rows - 1):
-            for j in range(1, self.cols - 1):
+        rows = self.rows
+        cols = self.cols
+        for i in range(rows):
+
+            neighbors = self.cells[i][0].neighbors
+            neighbors.append(self.cells[i][1])
+            neighbors.append(self.cells[(i + 1) % rows][0])
+            neighbors.append(self.cells[(i + 1) % rows][1])
+            neighbors.append(self.cells[(i + 1) % rows][cols - 1])
+
+            for j in range(1, self.cols):
                 neighbors = self.cells[i][j].neighbors
-                neighbors.append(self.cells[i][j + 1])
-                neighbors.append(self.cells[i + 1][j - 1])
-                neighbors.append(self.cells[i + 1][j])
-                neighbors.append(self.cells[i + 1][j + 1])
-
-        # Appending neighbors of the first and last columns of self.cells
-        for i in range(self.rows - 1):
-            neighbors_left = self.cells[i][0].neighbors
-            neighbors_left.append(self.cells[i][j + 1])
-            neighbors_left.append(self.cells[i + 1][j])
-            neighbors_left.append(self.cells[i + 1][j + 1])
-
-            neighbors_right = self.cells[i][self.cols - 1].neighbors
-            neighbors_right.append(self.cells[i + 1][j - 1])
-            neighbors_right.append(self.cells[i + 1][j])
-
-        # Appending neighbors of the last row of self.cells
-        for j in range(self.cols - 1):
-            i = self.rows - 1
-            neighbors = self.cells[i][j].neighbors
-            neighbors.append(self.cells[i][j + 1])
+                neighbors.append(self.cells[i][(j + 1) % cols])
+                neighbors.append(self.cells[(i + 1) % rows][j - 1])
+                neighbors.append(self.cells[(i + 1) % rows][j])
+                neighbors.append(self.cells[(i + 1) % rows][(j + 1) % cols])
 
         # Adding particles to the grid
+        self.particle_count = particles
         self.particles = []
+
         for _ in range(particles):
             pos = np.array([rng.random() * x for x in self.size])
-            vel = rng.normal(loc=0.0, scale=np.sqrt(init_temp), size=2)
+            vel = rng.normal(loc=0.0, scale=np.sqrt(self.init_temp), size=2)
             self.particles.append(Particle(pos, vel, self))
 
         # Updating particle forces and energies
-        self.update()
+        self.update_forces()
+        for particle in self.particles:
+            particle.old_force = particle.force
 
     def __repr__(self):
         return f"Grid(size={self.size}, cell_size={self.cell_size}, " \
-               f"particles={self.particles}, init_temp={self.init_temp})"
+               f"particles={self.particles}, init_temp={self.init_temp:.3e})"
 
     def cell(self, x, y):
         """Returns a cell based on position on the plane"""
@@ -155,17 +173,17 @@ class Grid:
     def kinetic_energy(self):
         sum = 0
         for particle in self.particles:
-            sum += particle.velocity @ particle.velocity
+            sum += np.linalg.norm(particle.velocity) ** 2
         return sum / 2
 
     def energy(self):
         return self.potential_energy() + self.kinetic_energy()
 
     def temperature(self):
-        return self.kinetic_energy() / len(self.particles)
+        return self.kinetic_energy() / self.particle_count
 
-    def update(self):
-        """Update the system"""
+    def update_forces(self):
+        """Update the forces on all particles"""
         for particle in self.particles:
             particle.old_force = particle.force
             particle.force = np.zeros(2)
@@ -173,6 +191,7 @@ class Grid:
 
         for i in range(self.rows):
             for j in range(self.cols):
+
                 # Compute forces between particles in same cell
                 for first_particle in self.cells[i][j].particles:
                     for second_particle in self.cells[i][j].particles:
@@ -188,7 +207,21 @@ class Grid:
                     # Compute forces between particles in different cells
                     for cell in self.cells[i][j].neighbors:
                         for second_particle in cell.particles:
-                            rel_position = second_particle.position - first_particle.position
+
+                            # Check whether the second cell is a physical neighbor of the first
+                            if self.cells[i][j].is_physical_neighbor(cell):
+                                rel_position = second_particle.position - first_particle.position
+
+                            # If it is a periodic image, apply the corrections to the second particle position
+                            else:
+                                second_particle_x = second_particle.position[0]
+                                second_particle_y = second_particle.position[1]
+                                if cell.row == 0:
+                                    second_particle_y += self.height
+                                if cell.col == 0:
+                                    second_particle_x += self.width
+                                rel_position = np.array([second_particle_x, second_particle_y]) - first_particle.position
+
                             force = lenard_jones_force(rel_position)
                             energy = lenard_jones_potential(rel_position)
                             second_particle.force += force
@@ -196,13 +229,15 @@ class Grid:
                             second_particle.energy += energy
                             first_particle.energy += energy
 
-        # Update position, velocity and cells of all particles
+    def update(self):
+        """Updates the system"""
+        self.update_forces()
+
         for particle in self.particles:
-            particle.old_force = particle.force
             particle.update()
 
-        # Update time
         self.time += self.dt
+        self.iteration += 1
 
 
 class Particle:
@@ -245,7 +280,7 @@ class Particle:
 
     def __repr__(self):
         return f"Particle(position={self.position}, velocity={self.velocity}, " \
-               f"energy={self.energy}, force={self.force})"
+               f"energy={self.energy:.3e}, force={self.force})"
 
     def current_cell(self):
         """Return the cell in which the particle currently is"""
@@ -284,16 +319,27 @@ if __name__ == "__main__":
     print("\nNeighbors of each cell:")
     for i in range(grid.rows):
         for j in range(grid.cols):
-            print(f"Cell {i}, {j} neighbors -> {grid.cells[i][j].neighbors}")
+            print(f"Cell {i}, {j}: {grid.cells[i][j].neighbors}")
 
-    print(f"\nEvolving the system with dt={grid.dt}")
-    t = 0
+    print(f"\nEvolving the system with dt = {grid.dt},",
+          f"Initial temperature = {grid.init_temp}")
+
+    old_energy = grid.energy()
+    energy = 0
+
     while True:
+        energy = grid.energy()
+
         print(
-            f"\nTime = {grid.time}, Energy = {grid.energy()},",
-            f"Temperature = {grid.temperature()}"
+            f"\nIteration = {grid.iteration}, Elapsed Time = {grid.time}"
+            f"\nPotential = {grid.potential_energy():.3e}, Kinetic = {grid.kinetic_energy():.3e},",
+            f"Energy = {energy:.3e}, Temperature = {grid.temperature():.3e}",
         )
 
-        print(grid.particles[0])
+        if (energy - old_energy) > (old_energy * 0.05):
+            print("\nEnergy not conserved!")
+            break
+
         grid.update()
+        old_energy = energy
         sleep(0.5)
