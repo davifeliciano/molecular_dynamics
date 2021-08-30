@@ -1,12 +1,12 @@
 import numpy as np
 from numpy.random import default_rng
-from time import sleep
 
 rng = default_rng()
 float_formatter = "{:.3e}".format
-np.set_printoptions(formatter={'float_kind':float_formatter})
+np.set_printoptions(formatter={"float_kind": float_formatter})
 
-BOLTZMANN = 1.38064852e-23
+# BOLTZMANN = 1.38064852e-23
+BOLTZMANN = 1.0
 
 
 def lenard_jones_potential(rel_position: np.ndarray) -> float:
@@ -36,6 +36,7 @@ class Cell:
     particles : list of Particles
         a list with all the particles contained by the cell
     """
+
     def __init__(self, row, col):
 
         self.indexes = self.row, self.col = row, col
@@ -71,7 +72,7 @@ class Grid:
     Attributes:
 
     rows, cols : ints
-        number of rows and columns of cells composing the grid 
+        number of rows and columns of cells composing the grid
 
     width, height : float
         width and height of the box
@@ -96,15 +97,16 @@ class Grid:
         number of iterations done with update method since the initial
         state of the system
     """
-    def __init__(self, size=(18, 18), cell_size=3, particles=400, init_temp=173.15):
+
+    def __init__(self, size=(36, 36), cell_size=3, particles=1000, init_temp=10.0):
 
         self.cell_size = cell_size
 
         width, height = size
 
         self.cols, self.rows = self.shape = (
-            int(np.ceil(width / cell_size)),
-            int(np.ceil(height / cell_size)),
+            int(width / cell_size),
+            int(height / cell_size),
         )
 
         self.width, self.height = self.size = (
@@ -114,7 +116,7 @@ class Grid:
 
         self.init_temp = init_temp / BOLTZMANN
         self.time = 0
-        self.dt = 0.01 / np.sqrt(self.init_temp)
+        self.dt = 0.001 / np.sqrt(self.init_temp)
         self.iteration = 0
 
         self.cells = np.array(
@@ -140,12 +142,21 @@ class Grid:
                 neighbors.append(self.cells[(i + 1) % rows][j])
                 neighbors.append(self.cells[(i + 1) % rows][(j + 1) % cols])
 
-        # Adding particles to the grid
+        # Adding particles uniformly to the grid
         self.particle_count = particles
         self.particles = []
 
-        for _ in range(particles):
-            pos = np.array([rng.random() * x for x in self.size])
+        area = self.width * self.height
+        site_size = np.sqrt(area / self.particle_count)
+        x_sites = int(self.width / site_size)
+        y_sites = int(self.height / site_size)
+        site_size = np.floor(min((self.width / x_sites, self.height / y_sites)))
+
+        for i in range(self.particle_count):
+            z = i / x_sites
+            x = (x_sites * (z - np.floor(z)) + 0.5) * site_size
+            y = (np.ceil((i + 1) / x_sites) - 0.5) * site_size
+            pos = np.array([x, y])
             vel = rng.normal(loc=0.0, scale=np.sqrt(self.init_temp), size=2)
             self.particles.append(Particle(pos, vel, self))
 
@@ -155,8 +166,10 @@ class Grid:
             particle.old_force = particle.force
 
     def __repr__(self):
-        return f"Grid(size={self.size}, cell_size={self.cell_size}, " \
-               f"particles={self.particles}, init_temp={self.init_temp:.3e})"
+        return (
+            f"Grid(size={self.size}, cell_size={self.cell_size}, "
+            f"particles={self.particles}, init_temp={self.init_temp:.3e})"
+        )
 
     def cell(self, x, y):
         """Returns a cell based on position on the plane"""
@@ -196,7 +209,10 @@ class Grid:
                 for first_particle in self.cells[i][j].particles:
                     for second_particle in self.cells[i][j].particles:
                         if first_particle is not second_particle:
-                            rel_position = second_particle.position - first_particle.position
+                            rel_position = (
+                                second_particle.position - first_particle.position
+                            )
+
                             force = lenard_jones_force(rel_position)
                             energy = lenard_jones_potential(rel_position)
                             second_particle.force += force
@@ -210,7 +226,9 @@ class Grid:
 
                             # Check whether the second cell is a physical neighbor of the first
                             if self.cells[i][j].is_physical_neighbor(cell):
-                                rel_position = second_particle.position - first_particle.position
+                                rel_position = (
+                                    second_particle.position - first_particle.position
+                                )
 
                             # If it is a periodic image, apply the corrections to the second particle position
                             else:
@@ -220,7 +238,10 @@ class Grid:
                                     second_particle_y += self.height
                                 if cell.col == 0:
                                     second_particle_x += self.width
-                                rel_position = np.array([second_particle_x, second_particle_y]) - first_particle.position
+                                rel_position = (
+                                    np.array([second_particle_x, second_particle_y])
+                                    - first_particle.position
+                                )
 
                             force = lenard_jones_force(rel_position)
                             energy = lenard_jones_potential(rel_position)
@@ -265,6 +286,7 @@ class Particle:
     cell : Cell
         cell in which the particle is inside
     """
+
     def __init__(self, pos, vel, grid):
 
         self.position = pos
@@ -279,8 +301,10 @@ class Particle:
         self.energy = 0
 
     def __repr__(self):
-        return f"Particle(position={self.position}, velocity={self.velocity}, " \
-               f"energy={self.energy:.3e}, force={self.force})"
+        return (
+            f"Particle(position={self.position}, velocity={self.velocity}, "
+            f"energy={self.energy:.3e}, force={self.force})"
+        )
 
     def current_cell(self):
         """Return the cell in which the particle currently is"""
@@ -305,9 +329,9 @@ class Particle:
 
 if __name__ == "__main__":
 
-    grid = Grid()
+    grid = Grid(size=(43, 71), particles=1000, init_temp=100.0)
 
-    print("Particles created:")
+    """ print("Particles created:")
     for particle in grid.particles:
         print(particle)
 
@@ -319,27 +343,37 @@ if __name__ == "__main__":
     print("\nNeighbors of each cell:")
     for i in range(grid.rows):
         for j in range(grid.cols):
-            print(f"Cell {i}, {j}: {grid.cells[i][j].neighbors}")
+            print(f"Cell {i}, {j}: {grid.cells[i][j].neighbors}") """
 
-    print(f"\nEvolving the system with dt = {grid.dt},",
-          f"Initial temperature = {grid.init_temp}")
+    print(
+        f"\nEvolving {grid.width} by {grid.height} box with {grid.particle_count} particles,",
+        f"dt = {grid.dt:.3e}, Initial temperature = {grid.init_temp:.3e}",
+    )
 
-    old_energy = grid.energy()
+    kinetic = grid.kinetic_energy()
+    potential = grid.potential_energy()
+    init_energy = kinetic + potential
     energy = 0
 
     while True:
-        energy = grid.energy()
+        kinetic = grid.kinetic_energy()
+        potential = grid.potential_energy()
+        energy = kinetic + potential
 
         print(
-            f"\nIteration = {grid.iteration}, Elapsed Time = {grid.time}"
-            f"\nPotential = {grid.potential_energy():.3e}, Kinetic = {grid.kinetic_energy():.3e},",
+            f"\nIteration = {grid.iteration}, Elapsed Time = {grid.time:.3e}"
+            f"\nPotential = {potential:.3e}, Kinetic = {kinetic:.3e},",
             f"Energy = {energy:.3e}, Temperature = {grid.temperature():.3e}",
         )
 
-        if (energy - old_energy) > (old_energy * 0.05):
-            print("\nEnergy not conserved!")
+        if (difference := (energy - init_energy) / init_energy) > 0.05:
+            print(f"\nEnergy not conserved! Difference of {difference}\%")
             break
 
         grid.update()
-        old_energy = energy
-        sleep(0.5)
+        init_energy = energy
+
+    print(
+    f"\n{grid.width} by {grid.height} box with {grid.particle_count} particles,",
+    f"dt = {grid.dt:.3e}, Initial temperature = {grid.init_temp:.3e}",
+    )
