@@ -98,7 +98,25 @@ class Grid:
     """
 
     def __init__(self, size=(100, 100), cell_size=3, particles=1000, init_temp=100.0):
+        """
+        Parameters:
 
+        size : 2-tuple of ints
+            the desired size for the grid. If both values are not
+            multiples of cell_size, a small change will be made to fit
+            this requirement
+
+        cell_size : float
+            size of each cell of the grid. A good value is 3. Any value
+            above this will result in longer computations, with small or no
+            improove in precision
+
+        particles : int
+            number of particles that the grid will be feeded with
+
+        init_temp : float
+            initial temperature of the system, in units of energy
+        """
         self.cell_size = abs(cell_size)
 
         if self.cell_size < 3:
@@ -151,7 +169,7 @@ class Grid:
                 neighbors.append(self.cells[(i + 1) % rows][(j + 1) % cols])
 
         # Adding particles uniformly to the grid
-        self.particle_count = particles
+        self.particle_count = abs(int(particles))
         self.particles = []
 
         area = self.width * self.height
