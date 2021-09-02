@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.random import default_rng
 
+
 rng = default_rng()
 float_formatter = "{:.3e}".format
 np.set_printoptions(formatter={"float_kind": float_formatter})
@@ -9,16 +10,14 @@ np.set_printoptions(formatter={"float_kind": float_formatter})
 BOLTZMANN = 1.0
 
 
-def lenard_jones_potential(rel_position: np.ndarray) -> float:
-    """Given a vector, compute Lenard Jones potential value"""
-    norm = np.linalg.norm(rel_position)
-    return 1 / norm ** 12 - 2 / norm ** 6
+def lenard_jones_potential(distance: float) -> float:
+    """Given a distance, compute Lenard Jones potential value"""
+    return 1 / distance ** 12 - 2 / distance ** 6
 
 
-def lenard_jones_force(rel_position: np.ndarray) -> np.ndarray:
-    """Given a vector, compute Lenard Jones force vector"""
-    norm = np.linalg.norm(rel_position)
-    return 12 * (1 / norm ** 14 - 1 / norm ** 8) * rel_position
+def lenard_jones_force(rel_pos: np.ndarray, rel_pos_norm: float) -> np.ndarray:
+    """Given a vector and its norm, compute Lenard Jones force vector"""
+    return 12 * (1 / rel_pos_norm ** 14 - 1 / rel_pos_norm ** 8) * rel_pos
 
 
 class Cell:
@@ -98,26 +97,35 @@ class Grid:
         state of the system
     """
 
-    def __init__(self, size=(36, 36), cell_size=3, particles=1000, init_temp=10.0):
+    def __init__(self, size=(100, 100), cell_size=3, particles=1000, init_temp=100.0):
 
-        self.cell_size = cell_size
+        self.cell_size = abs(cell_size)
+
+        if self.cell_size < 3:
+            raise Warning("A cell_size smaller than 3 may lead to loss of precision")
 
         width, height = size
 
         self.cols, self.rows = self.shape = (
-            int(width / cell_size),
-            int(height / cell_size),
+            int(abs(width) / cell_size),
+            int(abs(height) / cell_size),
         )
+
+        if self.rows < 4 or self.cols < 4:
+            raise ValueError(
+                "Too few rows / columns. Try to increase the size of the grid"
+            )
 
         self.width, self.height = self.size = (
             self.cols * cell_size,
             self.rows * cell_size,
         )
 
-        self.init_temp = init_temp / BOLTZMANN
+        self.init_temp = abs(init_temp) / BOLTZMANN
         self.time = 0
         self.dt = 0.001 / np.sqrt(self.init_temp)
         self.iteration = 0
+        self.energy = 0
 
         self.cells = np.array(
             [[Cell(i, j) for j in range(self.cols)] for i in range(self.rows)],
@@ -178,10 +186,7 @@ class Grid:
         return self.cells[row][col]
 
     def potential_energy(self):
-        sum = 0
-        for particle in self.particles:
-            sum += particle.energy
-        return sum
+        return self.energy
 
     def kinetic_energy(self):
         sum = 0
@@ -189,7 +194,7 @@ class Grid:
             sum += np.linalg.norm(particle.velocity) ** 2
         return sum / 2
 
-    def energy(self):
+    def total_energy(self):
         return self.potential_energy() + self.kinetic_energy()
 
     def temperature(self):
@@ -197,10 +202,11 @@ class Grid:
 
     def update_forces(self):
         """Update the forces on all particles"""
+        self.energy = 0
+
         for particle in self.particles:
             particle.old_force = particle.force
             particle.force = np.zeros(2)
-            particle.energy = 0
 
         for i in range(self.rows):
             for j in range(self.cols):
@@ -209,16 +215,15 @@ class Grid:
                 for first_particle in self.cells[i][j].particles:
                     for second_particle in self.cells[i][j].particles:
                         if first_particle is not second_particle:
-                            rel_position = (
-                                second_particle.position - first_particle.position
-                            )
+                            rel_pos = second_particle.position - first_particle.position
 
-                            force = lenard_jones_force(rel_position)
-                            energy = lenard_jones_potential(rel_position)
+                            rel_pos_norm = np.sqrt(rel_pos.dot(rel_pos))
+
+                            force = lenard_jones_force(rel_pos, rel_pos_norm)
+                            energy = lenard_jones_potential(rel_pos_norm)
                             second_particle.force += force
                             first_particle.force += -force
-                            second_particle.energy += energy
-                            first_particle.energy += energy
+                            self.energy += energy
 
                     # Compute forces between particles in different cells
                     for cell in self.cells[i][j].neighbors:
@@ -226,7 +231,7 @@ class Grid:
 
                             # Check whether the second cell is a physical neighbor of the first
                             if self.cells[i][j].is_physical_neighbor(cell):
-                                rel_position = (
+                                rel_pos = (
                                     second_particle.position - first_particle.position
                                 )
 
@@ -238,17 +243,18 @@ class Grid:
                                     second_particle_y += self.height
                                 if cell.col == 0:
                                     second_particle_x += self.width
-                                rel_position = (
+                                rel_pos = (
                                     np.array([second_particle_x, second_particle_y])
                                     - first_particle.position
                                 )
 
-                            force = lenard_jones_force(rel_position)
-                            energy = lenard_jones_potential(rel_position)
+                            rel_pos_norm = np.sqrt(rel_pos.dot(rel_pos))
+
+                            force = lenard_jones_force(rel_pos, rel_pos_norm)
+                            energy = lenard_jones_potential(rel_pos_norm)
                             second_particle.force += force
                             first_particle.force += -force
-                            second_particle.energy += energy
-                            first_particle.energy += energy
+                            self.energy += energy
 
     def update(self):
         """Updates the system"""
@@ -298,13 +304,9 @@ class Particle:
 
         self.old_force = np.zeros(2)
         self.force = np.zeros(2)
-        self.energy = 0
 
     def __repr__(self):
-        return (
-            f"Particle(position={self.position}, velocity={self.velocity}, "
-            f"energy={self.energy:.3e}, force={self.force})"
-        )
+        return f"Particle(position={self.position}, velocity={self.velocity}, force={self.force})"
 
     def current_cell(self):
         """Return the cell in which the particle currently is"""
@@ -329,7 +331,10 @@ class Particle:
 
 if __name__ == "__main__":
 
-    grid = Grid(size=(43, 71), particles=1000, init_temp=100.0)
+    import cProfile
+    import pstats
+
+    grid = Grid()
 
     """ print("Particles created:")
     for particle in grid.particles:
@@ -367,13 +372,19 @@ if __name__ == "__main__":
         )
 
         if (difference := (energy - init_energy) / init_energy) > 0.05:
-            print(f"\nEnergy not conserved! Difference of {difference}\%")
+            print(f"\nEnergy not conserved! Difference of {difference * 100:.2f}%")
             break
 
-        grid.update()
+        with cProfile.Profile() as pr:
+            grid.update()
+
+        stats = pstats.Stats(pr)
+        stats.sort_stats(pstats.SortKey.TIME)
+        stats.print_stats()
+
         init_energy = energy
 
     print(
-    f"\n{grid.width} by {grid.height} box with {grid.particle_count} particles,",
-    f"dt = {grid.dt:.3e}, Initial temperature = {grid.init_temp:.3e}",
+        f"\n{grid.width} by {grid.height} box with {grid.particle_count} particles,",
+        f"dt = {grid.dt:.3e}, Initial temperature = {grid.init_temp:.3e}",
     )
