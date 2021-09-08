@@ -1,8 +1,18 @@
+import os
 import argparse
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 import molecules as mol
+
+
+def clear_screen():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def move_cursor(y, x):
+    print("\033[%d;%dH" % (y, x))
+
 
 parser = argparse.ArgumentParser(
     description=(
@@ -65,6 +75,9 @@ cell_size = args.cell_size
 particles = args.particles
 init_temp = args.temperature
 
+if not particles:
+    particles = 2000
+
 grid = mol.Grid(
     size=size, cell_size=cell_size, particles=particles, init_temp=init_temp
 )
@@ -78,11 +91,7 @@ temperature = []
 fig, ax = plt.subplots()
 
 
-def move_cursor(y, x):
-    print("\033[%d;%dH" % (y, x))
-
-
-def animate(i):
+def animate(frame):
     potential_now = grid.potential_energy()
     kinetic_now = grid.kinetic_energy()
     energy_now = grid.total_energy()
@@ -94,16 +103,15 @@ def animate(i):
     energy.append(energy_now)
     temperature.append(temperature_now)
 
-    # move_cursor(0, 0)
+    move_cursor(0, 0)
 
     print(
-        f"Time = {grid.time:.3e}",
-        f"U = {potential_now:.3e}",
-        f"K = {kinetic_now:.3e}",
-        f"U + K = {energy_now:.3e}",
-        f"T = {temperature_now:.3e}",
+        f"Time = {grid.time:.3e} seconds",
+        f"U = {potential_now:.3e} Joules",
+        f"K = {kinetic_now:.3e} Joules",
+        f"U + K = {energy_now:.3e} Joules",
+        f"T = {temperature_now:.3e} Joules",
         sep="\n",
-        end="",
     )
 
     ax.clear()
@@ -126,6 +134,8 @@ def animate(i):
 
     grid.update()
 
+
+clear_screen()
 
 ani = FuncAnimation(fig, animate)
 

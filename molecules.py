@@ -178,10 +178,15 @@ class Grid:
         y_sites = int(self.height / site_size)
         site_size = np.floor(min((self.width / x_sites, self.height / y_sites)))
 
+        x_margin = (self.width - (x_sites + 0.5) * site_size) * 0.5
+        y_margin = (
+            self.height - (self.particle_count / x_sites + 0.5) * site_size
+        ) * 0.5
+
         for i in range(self.particle_count):
             z = i / x_sites
-            x = (x_sites * (z - np.floor(z)) + 0.5) * site_size
-            y = (np.ceil((i + 1) / x_sites) - 0.5) * site_size
+            x = (x_sites * (z - np.floor(z)) + 0.5) * site_size + x_margin
+            y = (np.ceil((i + 1) / x_sites) - 0.5) * site_size + y_margin
             pos = np.array([x, y])
             vel = rng.normal(loc=0.0, scale=np.sqrt(self.init_temp), size=2)
             self.particles.append(Particle(pos, vel, self))
@@ -352,7 +357,7 @@ if __name__ == "__main__":
     import cProfile
     import pstats
 
-    grid = Grid()
+    grid = Grid(size=(30, 79), particles=2000)
 
     """ print("Particles created:")
     for particle in grid.particles:
